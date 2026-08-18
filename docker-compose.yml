@@ -1,0 +1,53 @@
+# `docker compose up` starts local infrastructure for fast agent iteration.
+# `docker compose --profile full up --build` also runs the LiveKit worker.
+name: ride-voice-agent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: rideco
+      POSTGRES_PASSWORD: rideco
+      POSTGRES_DB: ride_demo
+    ports:
+      - "${PG_PORT:-55432}:5432"      # non-default host port: avoids clashing
+    volumes:                          # with the futureagi platform's postgres
+      - pgdata:/var/lib/postgresql/data
+      # *.sql in this dir run in filename order on first boot only
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rideco -d ride_demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  tools-api:
+    build: ./tools-api
+    environment:
+      DATABASE_URL: postgresql://rideco:rideco@postgres:5432/ride_demo
+    ports:
+      - "${TOOLS_PORT:-18090}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  agent:
+    profiles: ["full"]
+    build: .
+    env_file: .env.local
+    environment:
+      TOOLS_API_URL: http://tools-api:8080
+    depends_on:
+      tools-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

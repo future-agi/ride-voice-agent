@@ -1,0 +1,12 @@
+.env.local
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.egg-info/
+*.ses
+.DS_Store
+
+# Never commit real credentials.
+.env
