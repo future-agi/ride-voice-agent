@@ -1,4 +1,4 @@
-from ride_voice_agent.prompt import build_instructions
+from uber_voice_agent.prompt import build_instructions
 
 
 def test_prompt_contains_non_negotiable_voice_and_booking_rules() -> None:

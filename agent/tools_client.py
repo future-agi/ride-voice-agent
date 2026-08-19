@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -22,8 +25,53 @@ class ToolsClient:
         self.session_id = session_id
         self.timeout = timeout
         self._client = client
+        self._trace_path: Path | None = None
 
-    async def call(self, endpoint: str, **payload: Any) -> dict[str, Any]:
+    def enable_trace(self, destination: str | None = None) -> None:
+        """Trace API-boundary calls, including deterministic calls outside LLM tools."""
+        value = destination or os.environ.get("HARNESS_TOOL_TRACE", "")
+        if value.strip():
+            self._trace_path = Path(value)
+            self._trace_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def record_local(
+        self, name: str, arguments: dict[str, Any], output: dict[str, Any]
+    ) -> None:
+        """Record a state-only tool that does not cross the HTTP boundary."""
+        self._record(name, arguments, output, is_error=False)
+
+    def _record(
+        self,
+        endpoint: str,
+        payload: dict[str, Any],
+        output: dict[str, Any] | str,
+        *,
+        is_error: bool,
+    ) -> None:
+        if self._trace_path is None:
+            return
+        with self._trace_path.open("a", encoding="utf-8") as trace:
+            trace.write(
+                json.dumps(
+                    {
+                        "name": endpoint,
+                        "arguments": payload,
+                        "output": output,
+                        "is_error": is_error,
+                    },
+                    default=str,
+                )
+                + "\n"
+            )
+
+    async def call(
+        self,
+        endpoint: str,
+        *,
+        _trace_payload: dict[str, Any] | None = None,
+        **payload: Any,
+    ) -> dict[str, Any]:
+        traced_payload = {**payload, **(_trace_payload or {})}
         owns_client = self._client is None
         client = self._client or httpx.AsyncClient(
             base_url=self.base_url,
@@ -40,8 +88,15 @@ class ToolsClient:
             result = response.json()
             if not isinstance(result, dict):
                 raise ToolsAPIError("The local tools service returned an invalid response.")
+            self._record(endpoint, traced_payload, result, is_error=False)
             return result
         except (httpx.HTTPError, ValueError) as exc:
+            self._record(
+                endpoint,
+                traced_payload,
+                f"The {endpoint.replace('_', ' ')} service is temporarily unavailable.",
+                is_error=True,
+            )
             raise ToolsAPIError(
                 f"The {endpoint.replace('_', ' ')} service is temporarily unavailable."
             ) from exc

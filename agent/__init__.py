@@ -1,1 +1,1 @@
-"""RideCo voice booking agent package."""
+"""Uber voice booking agent package."""

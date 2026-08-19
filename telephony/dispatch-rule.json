@@ -2,19 +2,18 @@
   "dispatch_rule": {
     "rule": {
       "dispatchRuleIndividual": {
-        "roomPrefix": "rideco-call-"
+        "roomPrefix": "uber-call-"
       }
     },
-    "name": "RideCo booking calls",
+    "name": "Uber booking calls",
     "hidePhoneNumber": false,
     "roomConfig": {
       "agents": [
         {
-          "agentName": "ride-voice-booking",
+          "agentName": "uber-voice-booking",
           "metadata": "{\"channel\":\"inbound-phone\"}"
         }
       ]
     }
   }
 }
-
