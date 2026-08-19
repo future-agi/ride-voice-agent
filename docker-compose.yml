@@ -43,7 +43,13 @@ services:
     build: .
     env_file: .env.local
     environment:
-      TOOLS_API_URL: http://tools-api:8080
+      # Pointed at the harness's world during a simulation, so the agent's tools act on the
+      # generated world instead of its own database. Its own API remains the default.
+      TOOLS_API_URL: ${TOOLS_API_URL:-http://tools-api:8080}
+    volumes:
+      # Vertex service account, when the agent is configured to use Vertex rather than a
+      # Gemini API key. Named by an absolute path so it resolves inside the container.
+      - ${VERTEX_CREDENTIALS:-../future-agi/Vertex_AI_Creds.json}:/etc/vertex/creds.json:ro
     depends_on:
       tools-api:
         condition: service_healthy
