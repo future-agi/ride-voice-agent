@@ -19,8 +19,8 @@ from fastapi import FastAPI, HTTPException
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-DSN = os.environ.get("DATABASE_URL", "postgresql://rideco:rideco@postgres:5432/ride_demo")
-app = FastAPI(title="RideCo voice agent tools", version="1.0.0")
+DSN = os.environ.get("DATABASE_URL", "postgresql://uber:uber@postgres:5432/uber_demo")
+app = FastAPI(title="Uber voice agent tools", version="1.0.0")
 
 DRIVERS = [
     ("Amir", "white Toyota Camry", "8XYZ123"),
@@ -301,7 +301,7 @@ def get_payment_methods(body: RiderIn) -> dict:
     )
     return {
         "methods": methods,
-        "ride_cash_balance": _f(w["ride_cash_balance"]) if w else 0.0,
+        "uber_cash_balance": _f(w["uber_cash_balance"]) if w else 0.0,
         "cash_supported_in_market": bool(mk and mk["cash_supported"]),
     }
 

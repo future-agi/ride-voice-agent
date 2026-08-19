@@ -1,5 +1,5 @@
 from livekit.plugins import deepgram
-from ride_voice_agent.config import build_deepgram_stt
+from uber_voice_agent.config import build_deepgram_stt
 
 
 def test_flux_uses_deepgram_v2() -> None:

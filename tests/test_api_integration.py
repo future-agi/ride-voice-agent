@@ -57,9 +57,9 @@ def test_seeded_booking_flow_is_idempotent_and_cancellable() -> None:
                 "accessibility_needs": [],
             },
         )
-        ridex = next(o for o in quote["options"] if o["product_id"] == "ridex")
-        assert ridex["fare_low"] > 0
-        assert ridex["fare_high"] >= ridex["fare_low"]
+        uberx = next(o for o in quote["options"] if o["product_id"] == "uberx")
+        assert uberx["fare_low"] > 0
+        assert uberx["fare_high"] >= uberx["fare_low"]
 
         post(client, "send_otp", {"phone": "+14155550101"})
         otp = post(
@@ -74,10 +74,10 @@ def test_seeded_booking_flow_is_idempotent_and_cancellable() -> None:
             "rider_id": rider["rider_id"],
             "pickup_place_id": pickup["place_id"],
             "dropoff_place_id": dropoff["place_id"],
-            "product_id": ridex["product_id"],
+            "product_id": uberx["product_id"],
             "payment_method": "saved_card:pm_dana_visa",
-            "quoted_fare_low": ridex["fare_low"],
-            "quoted_fare_high": ridex["fare_high"],
+            "quoted_fare_low": uberx["fare_low"],
+            "quoted_fare_high": uberx["fare_high"],
             "idempotency_key": key,
         }
         first = post(client, "book_ride", booking_payload)

@@ -27,7 +27,7 @@ class BookingState:
     cash_supported: bool = False
     max_fare_without_otp: float | None = None
     payment_methods: list[dict[str, Any]] = field(default_factory=list)
-    ride_cash_balance: float = 0.0
+    uber_cash_balance: float = 0.0
     candidates: dict[str, list[dict[str, Any]]] = field(
         default_factory=lambda: {"pickup": [], "dropoff": []}
     )
@@ -41,6 +41,12 @@ class BookingState:
     confirmation_token: str | None = None
     confirmation_digest: str | None = None
     booking_ref: str | None = None
+
+    def ensure_bookable(self) -> None:
+        if self.rider_status in {"suspended", "payment_hold", "banned"}:
+            raise GuardError(
+                f"This account is {self.rider_status.replace('_', ' ')} and cannot book rides."
+            )
 
     def set_identity(self, identity: dict[str, Any]) -> None:
         self.rider_id = identity.get("rider_id")
@@ -75,6 +81,7 @@ class BookingState:
         return candidate
 
     def remember_quote(self, quote: dict[str, Any]) -> None:
+        self.ensure_bookable()
         if not self.pickup or not self.dropoff:
             raise GuardError("Confirm pickup and destination before requesting options.")
         self.quote = quote
@@ -84,6 +91,7 @@ class BookingState:
         self._clear_confirmation()
 
     def select_product(self, product_id: str) -> dict[str, Any]:
+        self.ensure_bookable()
         if not self.quote:
             raise GuardError("Get a current ride quote first.")
         option = next(
@@ -99,6 +107,7 @@ class BookingState:
         return option
 
     def select_payment(self, payment_method: str) -> None:
+        self.ensure_bookable()
         if not self.selected_option:
             raise GuardError("Select a quoted ride option before payment.")
         high = float(self.selected_option["fare_high"])
@@ -111,10 +120,10 @@ class BookingState:
                 raise GuardError("That saved payment method is not valid.")
             if self.auth_level != "otp_verified":
                 raise GuardError("A successful OTP check is required for a saved card.")
-        elif payment_method == "ride_cash":
-            if self.ride_cash_balance < high:
+        elif payment_method == "uber_cash":
+            if self.uber_cash_balance < high:
                 raise GuardError(
-                    "The RideCo Cash balance does not cover the high fare estimate."
+                    "The Uber Cash balance does not cover the high fare estimate."
                 )
         elif payment_method == "cash":
             if not self.cash_supported:
@@ -152,6 +161,7 @@ class BookingState:
         }
 
     def prepare_confirmation(self) -> tuple[str, str]:
+        self.ensure_bookable()
         snapshot = self.snapshot()
         raw = json.dumps(snapshot, sort_keys=True, separators=(",", ":"))
         self.confirmation_digest = hashlib.sha256(raw.encode()).hexdigest()
@@ -169,6 +179,7 @@ class BookingState:
         return self.confirmation_token, summary
 
     def authorize_booking(self, token: str, caller_explicitly_confirmed: bool) -> None:
+        self.ensure_bookable()
         if not caller_explicitly_confirmed:
             raise GuardError("The caller must give an explicit yes before booking.")
         if not self.confirmation_token or token != self.confirmation_token:

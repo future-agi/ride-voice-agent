@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -14,13 +17,20 @@ from livekit.agents import (
     room_io,
 )
 from livekit.plugins import ai_coustics, deepgram, google, silero
-from ride_voice_agent.config import build_deepgram_stt, google_llm_kwargs
-from ride_voice_agent.ride_agent import RideBookingAgent
-from ride_voice_agent.state import BookingState
-from ride_voice_agent.tools_client import ToolsClient
+from uber_voice_agent.config import build_deepgram_stt, google_llm_kwargs
+from uber_voice_agent.ride_agent import RideBookingAgent
+from uber_voice_agent.state import BookingState
+from uber_voice_agent.tools_client import ToolsClient
 
 load_dotenv(".env.local")
-logger = logging.getLogger("ride-voice-agent")
+logger = logging.getLogger("uber-voice-agent")
+
+_LOCAL_STATE_TOOLS = {
+    "confirm_address",
+    "select_ride_option",
+    "select_payment_method",
+    "prepare_booking_confirmation",
+}
 
 
 async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
@@ -33,7 +43,7 @@ async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
     places = await client.call("get_saved_places", rider_id=state.rider_id)
     payments = await client.call("get_payment_methods", rider_id=state.rider_id)
     state.payment_methods = payments.get("methods", [])
-    state.ride_cash_balance = float(payments.get("ride_cash_balance", 0))
+    state.uber_cash_balance = float(payments.get("uber_cash_balance", 0))
     state.cash_supported = bool(payments.get("cash_supported_in_market"))
     labels = [p.get("label", "place") for p in places.get("places", [])]
     default = next((m for m in state.payment_methods if m.get("is_default")), None)
@@ -45,7 +55,7 @@ async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
             if default
             else "none"
         ),
-        ride_cash_summary=f"{state.ride_cash_balance:.2f}",
+        uber_cash_summary=f"{state.uber_cash_balance:.2f}",
         cash_supported=state.cash_supported,
     )
     return context
@@ -54,9 +64,70 @@ async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
 server = AgentServer()
 
 
-@server.rtc_session(agent_name="rideco-voice-booking")
+def build_audio_input_options() -> room_io.AudioInputOptions:
+    """Use AI-coustics when available, with an opt-out for test projects."""
+    if os.environ.get("DISABLE_AI_COUSTICS", "").lower() in {"1", "true", "yes"}:
+        return room_io.AudioInputOptions()
+    return room_io.AudioInputOptions(
+        noise_cancellation=ai_coustics.audio_enhancement(
+            model=ai_coustics.EnhancerModel.QUAIL_VF_S
+        )
+    )
+
+
+def enable_harness_local_tool_trace(session: AgentSession) -> None:
+    """Trace state-only tools; HTTP-backed tools are traced by ToolsClient."""
+    destination = os.environ.get("HARNESS_TOOL_TRACE", "").strip()
+    if not destination:
+        return
+    path = Path(destination)
+
+    def record(event) -> None:
+        records = []
+        for call, output in event.zipped():
+            if call.name not in _LOCAL_STATE_TOOLS:
+                continue
+            records.append(
+                {
+                    "name": call.name,
+                    "arguments": call.arguments,
+                    "output": output.output if output is not None else "",
+                    "is_error": bool(output and output.is_error),
+                }
+            )
+        if records:
+            with path.open("a", encoding="utf-8") as trace:
+                for one in records:
+                    trace.write(json.dumps(one, default=str) + "\n")
+
+    session.on("function_tools_executed", record)
+
+
+@server.rtc_session(agent_name=os.environ.get("LIVEKIT_AGENT_NAME", "uber-voice-booking"))
 async def entrypoint(ctx: JobContext) -> None:
-    participant = await ctx.wait_for_participant()
+    identity_prefix = os.environ.get("HARNESS_CALLER_IDENTITY_PREFIX", "").strip()
+    if identity_prefix:
+        await ctx.connect()
+        deadline = asyncio.get_running_loop().time() + 60
+        participant = None
+        while asyncio.get_running_loop().time() < deadline:
+            participant = next(
+                (
+                    one
+                    for one in ctx.room.remote_participants.values()
+                    if str(one.identity).startswith(identity_prefix)
+                ),
+                None,
+            )
+            if participant is not None:
+                break
+            await asyncio.sleep(0.1)
+        if participant is None:
+            raise RuntimeError(
+                f"caller participant with prefix {identity_prefix!r} did not join"
+            )
+    else:
+        participant = await ctx.wait_for_participant()
     is_sip = participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
     caller_ani = participant.attributes.get("sip.phoneNumber") if is_sip else None
     caller_ani = caller_ani or os.environ.get("DEMO_CALLER_ANI", "+14155550101")
@@ -74,6 +145,9 @@ async def entrypoint(ctx: JobContext) -> None:
         timeout=float(os.environ.get("TOOLS_TIMEOUT_SECONDS", "5")),
     )
     context = await load_caller_context(client, state)
+    # Context hydration is setup, not part of the scenario. Trace from the first
+    # conversational action onward, including deterministic account handoffs.
+    client.enable_trace()
 
     deepgram_key = os.environ["DEEPGRAM_API_KEY"]
     stt_model = os.environ.get(
@@ -93,19 +167,26 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
         turn_handling=TurnHandlingOptions(
             turn_detection="stt",
-            preemptive_generation={"enabled": True},
+            interruption={
+                "enabled": os.environ.get("AGENT_ALLOW_INTERRUPTION", "1").lower()
+                not in {"0", "false", "no"},
+                "discard_audio_if_uninterruptible": True,
+            },
+            preemptive_generation={
+                "enabled": os.environ.get("AGENT_PREEMPTIVE_GENERATION", "1").lower()
+                not in {"0", "false", "no"}
+            },
         ),
+        max_tool_steps=int(os.environ.get("AGENT_MAX_TOOL_STEPS", "12")),
         vad=silero.VAD.load(),
     )
+    enable_harness_local_tool_trace(session)
     await session.start(
         agent=RideBookingAgent(state, client, context),
         room=ctx.room,
         room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=ai_coustics.audio_enhancement(
-                    model=ai_coustics.EnhancerModel.QUAIL_VF_S
-                )
-            )
+            audio_input=build_audio_input_options(),
+            participant_identity=participant.identity,
         ),
     )
 

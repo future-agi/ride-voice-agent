@@ -1,4 +1,4 @@
-# RideCo ride-booking voice agent
+# Uber ride-booking voice agent
 
 A local-first LiveKit voice worker for inbound ride booking. It follows the same
 audio pipeline as the tested customer-support agent: Deepgram speech-to-text,
@@ -17,7 +17,7 @@ deployment. No application data service is hosted by this repository.
 - Fares, availability, surge, and pickup ETAs only come from the tools API.
 - Changing an address invalidates the quote, payment choice, and consent token.
 - Saved cards require a successful OTP in the current call.
-- RideCo Cash must cover the high end of the quote; cash must be market-eligible.
+- Uber Cash must cover the high end of the quote; cash must be market-eligible.
 - Payment links remain pending until a payment-provider callback marks them ready.
 - Booking requires a one-time token tied to the exact trip read-back and an
   explicit affirmative response.
@@ -81,7 +81,7 @@ Deepgram credentials, and either Gemini API or Google Vertex credentials.
 | Caller | Expected path |
 |---|---|
 | `+14155550101` Dana | Valid saved Visa; OTP required |
-| `+14155550102` Marcus | Expired card; RideCo Cash can cover many trips |
+| `+14155550102` Marcus | Expired card; Uber Cash can cover many trips |
 | `+14155550103` Priya | Suspended; booking rejected and human handoff offered |
 | `+919845550104` Arjun | Bengaluru cash-eligible market |
 | Any other number | Guest flow; cash if eligible, otherwise payment link |
@@ -154,7 +154,7 @@ To deliberately erase and reseed the demo database, run
 
 ## Production replacements
 
-The tools service is a complete local simulator, not RideCo's production backend.
+The tools service is a complete local simulator, not Uber's production backend.
 Before real use, replace its generated drivers/fare engine, fixed OTP, SMS stubs,
 payment callback, and logical human-transfer response with authenticated provider
 integrations. Keep the guarded state machine and idempotency checks in front of

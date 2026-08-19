@@ -1,4 +1,4 @@
--- RideCo ride-booking voice agent — schema mirrors §3a of the prompt package.
+-- Uber ride-booking voice agent — schema mirrors §3a of the prompt package.
 -- Every fare/ETA/availability the agent speaks must come from here via a tool.
 
 DROP TABLE IF EXISTS payment_links, bookings, otp_codes, promotions, trips, saved_places,
@@ -24,7 +24,7 @@ CREATE TABLE users (
 CREATE TABLE payment_methods (
     id          TEXT PRIMARY KEY,
     rider_id    TEXT NOT NULL REFERENCES users(rider_id) ON DELETE CASCADE,
-    type        TEXT NOT NULL,   -- card|paypal|applepay|googlepay|ride_cash|business
+    type        TEXT NOT NULL,   -- card|paypal|applepay|googlepay|uber_cash|business
     brand       TEXT,
     last4       TEXT,
     is_default  BOOLEAN NOT NULL DEFAULT FALSE,
@@ -34,7 +34,7 @@ CREATE TABLE payment_methods (
 
 CREATE TABLE wallets (
     rider_id          TEXT PRIMARY KEY REFERENCES users(rider_id) ON DELETE CASCADE,
-    ride_cash_balance NUMERIC(10,2) NOT NULL DEFAULT 0
+    uber_cash_balance NUMERIC(10,2) NOT NULL DEFAULT 0
 );
 
 CREATE TABLE saved_places (

@@ -5,16 +5,16 @@
 --   anything else       — unknown number -> guest flow
 
 INSERT INTO market_config (market, cash_supported, currency, surge_multiplier, available_products) VALUES
-  ('US-SF',  FALSE, 'USD', 1.00, ARRAY['ridex','comfort','ridexl','black','wav']),
-  ('US-NYC', FALSE, 'USD', 1.35, ARRAY['ridex','comfort','ridexl','black']),
-  ('IN-BLR', TRUE,  'INR', 1.00, ARRAY['ridex','ridexl']);
+  ('US-SF',  FALSE, 'USD', 1.00, ARRAY['uberx','comfort','uberxl','black','wav']),
+  ('US-NYC', FALSE, 'USD', 1.35, ARRAY['uberx','comfort','uberxl','black']),
+  ('IN-BLR', TRUE,  'INR', 1.00, ARRAY['uberx','uberxl']);
 
 INSERT INTO products (product_id, display_name, capacity, base_fare, per_mile, per_minute, min_fare, description, is_wav, sort_order) VALUES
-  ('ridex',   'RideX',   4, 2.55, 1.75, 0.35,  8.00, 'Affordable everyday rides',        FALSE, 1),
+  ('uberx',   'UberX',   4, 2.55, 1.75, 0.35,  8.00, 'Affordable everyday rides',        FALSE, 1),
   ('comfort', 'Comfort', 4, 3.50, 2.10, 0.45, 11.00, 'Newer cars, extra legroom',        FALSE, 2),
-  ('ridexl',  'RideXL',  6, 4.20, 2.60, 0.50, 14.00, 'Room for up to six',               FALSE, 3),
+  ('uberxl',  'UberXL',  6, 4.20, 2.60, 0.50, 14.00, 'Room for up to six',               FALSE, 3),
   ('black',   'Black',   4, 8.00, 4.10, 0.75, 26.00, 'Premium rides, professional drivers', FALSE, 4),
-  ('wav',     'RideCoWAV', 4, 2.55, 1.75, 0.35,  8.00, 'Wheelchair-accessible vehicle',    TRUE,  5);
+  ('wav',     'UberWAV', 4, 2.55, 1.75, 0.35,  8.00, 'Wheelchair-accessible vehicle',    TRUE,  5);
 
 INSERT INTO places (place_id, formatted_address, city, market, lat, lng, aliases) VALUES
   ('plc_hilton_us',  '333 O''Farrell Street, San Francisco, CA', 'San Francisco', 'US-SF', 37.785980, -122.410140,
@@ -51,7 +51,7 @@ INSERT INTO payment_methods (id, rider_id, type, brand, last4, is_default, is_va
   ('pm_marcus_mc',   'rdr_marcus', 'card', 'Mastercard', '5544', TRUE,  FALSE, TRUE),
   ('pm_priya_visa',  'rdr_priya',  'card', 'Visa',       '1111', TRUE,  TRUE,  FALSE);
 
-INSERT INTO wallets (rider_id, ride_cash_balance) VALUES
+INSERT INTO wallets (rider_id, uber_cash_balance) VALUES
   ('rdr_dana', 12.00), ('rdr_marcus', 65.00), ('rdr_priya', 0.00), ('rdr_arjun', 0.00);
 
 INSERT INTO saved_places (id, rider_id, label, place_id, formatted_address, lat, lng) VALUES
