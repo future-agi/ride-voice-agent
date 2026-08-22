@@ -25,13 +25,6 @@ from uber_voice_agent.tools_client import ToolsClient
 load_dotenv(".env.local")
 logger = logging.getLogger("uber-voice-agent")
 
-_LOCAL_STATE_TOOLS = {
-    "confirm_address",
-    "select_ride_option",
-    "select_payment_method",
-    "prepare_booking_confirmation",
-}
-
 
 async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
     identity = await client.call("lookup_rider_by_phone", phone=state.caller_ani)
@@ -76,8 +69,16 @@ def build_audio_input_options() -> room_io.AudioInputOptions:
 
 
 def enable_harness_local_tool_trace(session: AgentSession) -> None:
-    """Trace state-only tools; HTTP-backed tools are traced by ToolsClient."""
-    destination = os.environ.get("HARNESS_TOOL_TRACE", "").strip()
+    """Trace the semantic tool boundary the model actually sees.
+
+    The backend proxy separately records HTTP effects. This event includes local state-machine
+    tools and the model-facing arguments that an HTTP client may enrich before forwarding, so it
+    is the authoritative evidence for grading ordering and explicit confirmation.
+    """
+    destination = (
+        os.environ.get("HARNESS_AGENT_TOOL_TRACE", "").strip()
+        or os.environ.get("HARNESS_TOOL_TRACE", "").strip()
+    )
     if not destination:
         return
     path = Path(destination)
@@ -85,8 +86,6 @@ def enable_harness_local_tool_trace(session: AgentSession) -> None:
     def record(event) -> None:
         records = []
         for call, output in event.zipped():
-            if call.name not in _LOCAL_STATE_TOOLS:
-                continue
             records.append(
                 {
                     "name": call.name,
@@ -147,7 +146,10 @@ async def entrypoint(ctx: JobContext) -> None:
     context = await load_caller_context(client, state)
     # Context hydration is setup, not part of the scenario. Trace from the first
     # conversational action onward, including deterministic account handoffs.
-    client.enable_trace()
+    # Older/direct harness runners only expose the HTTP-boundary trace. When the semantic trace
+    # is mounted, the session event above records every tool once and avoids duplicate entries.
+    if not os.environ.get("HARNESS_AGENT_TOOL_TRACE", "").strip():
+        client.enable_trace()
 
     deepgram_key = os.environ["DEEPGRAM_API_KEY"]
     stt_model = os.environ.get(

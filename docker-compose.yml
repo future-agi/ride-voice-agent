@@ -43,7 +43,15 @@ services:
     build: .
     env_file: .env.local
     environment:
+      # The harness may replace this with its recording proxy, but the default full stack must
+      # always stay inside this Compose project rather than calling a host/demo service.
       TOOLS_API_URL: http://tools-api:8080
+      GOOGLE_APPLICATION_CREDENTIALS: /etc/vertex/creds.json
+    volumes:
+      # This is supplied once by the harness platform, not by each submitted repository user.
+      # /dev/null keeps infrastructure discovery possible when voice credentials are absent;
+      # run preflight then reports the missing platform capability before placing a call.
+      - ${VERTEX_CREDENTIALS:-/dev/null}:/etc/vertex/creds.json:ro
     depends_on:
       tools-api:
         condition: service_healthy
