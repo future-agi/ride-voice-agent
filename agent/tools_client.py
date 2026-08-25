@@ -64,19 +64,24 @@ class ToolsClient:
     ) -> None:
         if self._trace_path is None:
             return
-        with self._trace_path.open("a", encoding="utf-8") as trace:
-            trace.write(
-                json.dumps(
-                    {
-                        "name": endpoint,
-                        "arguments": payload,
-                        "output": output,
-                        "is_error": is_error,
-                    },
-                    default=str,
+        try:
+            with self._trace_path.open("a", encoding="utf-8") as trace:
+                trace.write(
+                    json.dumps(
+                        {
+                            "name": endpoint,
+                            "arguments": payload,
+                            "output": output,
+                            "is_error": is_error,
+                        },
+                        default=str,
+                    )
+                    + "\n"
                 )
-                + "\n"
-            )
+        except OSError:
+            # Evidence is best-effort and must never change agent behavior. The
+            # tools proxy remains a fallback when a trace mount is unavailable.
+            return
 
     async def call(
         self,

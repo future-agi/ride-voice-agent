@@ -65,7 +65,7 @@ def test_seeded_booking_flow_is_idempotent_and_cancellable() -> None:
         otp = post(
             client,
             "verify_otp",
-            {"phone": "+14155550101", "code": "123456"},
+            {"phone": "+14155550101", "code": "638204"},
         )
         assert otp["verified"] is True
 

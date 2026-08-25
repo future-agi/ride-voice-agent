@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -25,12 +26,26 @@ from uber_voice_agent.tools_client import ToolsClient
 load_dotenv(".env.local")
 logger = logging.getLogger("uber-voice-agent")
 
+_LOCAL_STATE_TOOLS = {
+    "confirm_address",
+    "select_ride_option",
+    "select_payment_method",
+    "prepare_booking_confirmation",
+}
+
 
 async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
     identity = await client.call("lookup_rider_by_phone", phone=state.caller_ani)
     state.set_identity(identity)
     context = {**identity, "caller_ani": state.caller_ani}
     if not state.rider_id:
+        return context
+
+    # The generated world owns scenario state. Eagerly fetching places and
+    # payment methods here would be recorded as agent actions before the caller
+    # has asked for anything, so hydrate only identity and let conversational
+    # tools retrieve the rest when they are actually needed.
+    if client.harness_mode:
         return context
 
     places = await client.call("get_saved_places", rider_id=state.rider_id)
@@ -69,16 +84,8 @@ def build_audio_input_options() -> room_io.AudioInputOptions:
 
 
 def enable_harness_local_tool_trace(session: AgentSession) -> None:
-    """Trace the semantic tool boundary the model actually sees.
-
-    The backend proxy separately records HTTP effects. This event includes local state-machine
-    tools and the model-facing arguments that an HTTP client may enrich before forwarding, so it
-    is the authoritative evidence for grading ordering and explicit confirmation.
-    """
-    destination = (
-        os.environ.get("HARNESS_AGENT_TOOL_TRACE", "").strip()
-        or os.environ.get("HARNESS_TOOL_TRACE", "").strip()
-    )
+    """Trace state-only tools; HTTP-backed tools are traced by ToolsClient."""
+    destination = os.environ.get("HARNESS_TOOL_TRACE", "").strip()
     if not destination:
         return
     path = Path(destination)
@@ -86,6 +93,8 @@ def enable_harness_local_tool_trace(session: AgentSession) -> None:
     def record(event) -> None:
         records = []
         for call, output in event.zipped():
+            if call.name not in _LOCAL_STATE_TOOLS:
+                continue
             records.append(
                 {
                     "name": call.name,
@@ -95,14 +104,20 @@ def enable_harness_local_tool_trace(session: AgentSession) -> None:
                 }
             )
         if records:
-            with path.open("a", encoding="utf-8") as trace:
-                for one in records:
-                    trace.write(json.dumps(one, default=str) + "\n")
+            try:
+                with path.open("a", encoding="utf-8") as trace:
+                    for one in records:
+                        trace.write(json.dumps(one, default=str) + "\n")
+            except OSError:
+                # Observability is best-effort and must never affect the call under test.
+                return
 
     session.on("function_tools_executed", record)
 
 
-@server.rtc_session(agent_name=os.environ.get("LIVEKIT_AGENT_NAME", "uber-voice-booking"))
+@server.rtc_session(
+    agent_name=os.environ.get("LIVEKIT_AGENT_NAME", "uber-voice-booking")
+)
 async def entrypoint(ctx: JobContext) -> None:
     identity_prefix = os.environ.get("HARNESS_CALLER_IDENTITY_PREFIX", "").strip()
     if identity_prefix:
@@ -128,8 +143,39 @@ async def entrypoint(ctx: JobContext) -> None:
     else:
         participant = await ctx.wait_for_participant()
     is_sip = participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-    caller_ani = participant.attributes.get("sip.phoneNumber") if is_sip else None
+    # LiveKit may publish custom participant attributes a fraction after the join
+    # event. The simulator also puts the caller number in participant metadata so
+    # a harness call never silently falls back to the demo rider.
+    caller_ani = None
+    metadata: dict = {}
+    for _ in range(20):
+        caller_ani = participant.attributes.get("sip.phoneNumber")
+        caller_ani = caller_ani or participant.attributes.get("harness.callerPhone")
+        try:
+            metadata = json.loads(participant.metadata or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        caller_ani = caller_ani or metadata.get("caller_phone")
+        identity_match = re.match(
+            r"^fagi-simulator-phone-(\d+)-", str(participant.identity)
+        )
+        if not caller_ani and identity_match:
+            caller_ani = "+" + identity_match.group(1)
+        if caller_ani:
+            break
+        await asyncio.sleep(0.1)
     caller_ani = caller_ani or os.environ.get("DEMO_CALLER_ANI", "+14155550101")
+    logger.info(
+        "resolved caller context",
+        extra={
+            "participant_identity": participant.identity,
+            "caller_ani": caller_ani,
+            "used_harness_identity": bool(
+                participant.attributes.get("harness.callerPhone")
+                or metadata.get("caller_phone")
+            ),
+        },
+    )
     session_id = ctx.room.name or participant.identity
     state = BookingState(
         caller_ani=caller_ani,
@@ -146,10 +192,7 @@ async def entrypoint(ctx: JobContext) -> None:
     context = await load_caller_context(client, state)
     # Context hydration is setup, not part of the scenario. Trace from the first
     # conversational action onward, including deterministic account handoffs.
-    # Older/direct harness runners only expose the HTTP-boundary trace. When the semantic trace
-    # is mounted, the session event above records every tool once and avoids duplicate entries.
-    if not os.environ.get("HARNESS_AGENT_TOOL_TRACE", "").strip():
-        client.enable_trace()
+    client.enable_trace()
 
     deepgram_key = os.environ["DEEPGRAM_API_KEY"]
     stt_model = os.environ.get(
