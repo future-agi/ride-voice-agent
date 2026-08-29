@@ -115,9 +115,7 @@ def enable_harness_local_tool_trace(session: AgentSession) -> None:
     session.on("function_tools_executed", record)
 
 
-@server.rtc_session(
-    agent_name=os.environ.get("LIVEKIT_AGENT_NAME", "uber-voice-booking")
-)
+@server.rtc_session(agent_name=os.environ.get("LIVEKIT_AGENT_NAME", "uber-voice-booking"))
 async def entrypoint(ctx: JobContext) -> None:
     identity_prefix = os.environ.get("HARNESS_CALLER_IDENTITY_PREFIX", "").strip()
     if identity_prefix:

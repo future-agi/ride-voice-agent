@@ -372,8 +372,10 @@ class RideBookingAgent(Agent):
                 "formatted_address": candidate["formatted_address"],
             }
             if self.client.harness_mode:
-                await self.client.call(
-                    "confirm_address", address_kind=address_kind, place_id=place_id
+                self.client.record_local(
+                    "confirm_address",
+                    {"address_kind": address_kind, "place_id": place_id},
+                    result,
                 )
             return result
         except Exception as exc:
@@ -406,7 +408,11 @@ class RideBookingAgent(Agent):
         try:
             option = self.state.select_product(product_id)
             if self.client.harness_mode:
-                await self.client.call("select_ride_option", product_id=product_id)
+                result = {"selected": True, "option": option}
+                self.client.record_local(
+                    "select_ride_option", {"product_id": product_id}, result
+                )
+                return result
             return {"selected": True, "option": option}
         except Exception as exc:
             raise _tool_error(exc) from exc
@@ -458,9 +464,13 @@ class RideBookingAgent(Agent):
         try:
             self.state.select_payment(payment_method)
             if self.client.harness_mode:
-                await self.client.call(
-                    "select_payment_method", payment_method=payment_method
+                result = {"selected": True, "payment": payment_method}
+                self.client.record_local(
+                    "select_payment_method",
+                    {"payment_method": payment_method},
+                    result,
                 )
+                return result
             return {"selected": True, "payment": payment_method}
         except Exception as exc:
             raise _tool_error(exc) from exc
@@ -502,12 +512,9 @@ class RideBookingAgent(Agent):
         try:
             token, summary = self.state.prepare_confirmation()
             if self.client.harness_mode:
-                mirrored = await self.client.call("prepare_booking_confirmation")
-                token = str(mirrored.get("confirmation_token") or token)
-                summary = str(mirrored.get("summary_to_read") or summary)
-                # Preserve the local safety digest while using the world's
-                # one-time token validated by the subsequent booking call.
-                self.state.confirmation_token = token
+                result = {"confirmation_token": token, "summary_to_read": summary}
+                self.client.record_local("prepare_booking_confirmation", {}, result)
+                return result
             return {"confirmation_token": token, "summary_to_read": summary}
         except Exception as exc:
             raise _tool_error(exc) from exc

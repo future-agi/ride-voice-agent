@@ -83,6 +83,12 @@ def lookup_rider_by_phone(body: PhoneIn) -> dict:
     if not u:
         return {"rider_id": None, "first_name": None, "status": "unknown"}
     mk = one("SELECT * FROM market_config WHERE market = %s", (u["default_market"],))
+    active_booking = one(
+        "SELECT booking_ref FROM bookings"
+        " WHERE rider_id = %s AND status NOT IN ('cancelled', 'completed')"
+        " ORDER BY created_at DESC LIMIT 1",
+        (u["rider_id"],),
+    )
     return {
         "rider_id": u["rider_id"],
         "first_name": u["first_name"],
@@ -94,6 +100,7 @@ def lookup_rider_by_phone(body: PhoneIn) -> dict:
         "business_profile_id": u["business_profile_id"],
         "accessibility_needs": u["accessibility_needs"] or [],
         "cash_supported_in_market": bool(mk and mk["cash_supported"]),
+        "booking_ref": active_booking["booking_ref"] if active_booking else None,
     }
 
 
