@@ -42,12 +42,12 @@ class RideBookingAgent(Agent):
             return
         if self.state.rider_id and self.state.first_name:
             greeting = (
-                f"Hi {self.state.first_name}, thanks for calling Uber. "
+                f"Hi {self.state.first_name}, this is Uber calling about your ride. "
                 "Where should the driver pick you up?"
             )
         else:
             greeting = (
-                "Hi, thanks for calling Uber. I can help book a ride. "
+                "Hi, this is Uber calling to help you book a ride. "
                 "What name should I use?"
             )
         if os.environ.get("DETERMINISTIC_RIDE_CONTROLLER", "").lower() in {
