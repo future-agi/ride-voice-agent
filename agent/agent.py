@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -38,6 +39,13 @@ async def load_caller_context(client: ToolsClient, state: BookingState) -> dict:
     state.set_identity(identity)
     context = {**identity, "caller_ani": state.caller_ani}
     if not state.rider_id:
+        return context
+
+    # The generated world owns scenario state. Eagerly fetching places and
+    # payment methods here would be recorded as agent actions before the caller
+    # has asked for anything, so hydrate only identity and let conversational
+    # tools retrieve the rest when they are actually needed.
+    if client.harness_mode:
         return context
 
     places = await client.call("get_saved_places", rider_id=state.rider_id)
@@ -96,9 +104,13 @@ def enable_harness_local_tool_trace(session: AgentSession) -> None:
                 }
             )
         if records:
-            with path.open("a", encoding="utf-8") as trace:
-                for one in records:
-                    trace.write(json.dumps(one, default=str) + "\n")
+            try:
+                with path.open("a", encoding="utf-8") as trace:
+                    for one in records:
+                        trace.write(json.dumps(one, default=str) + "\n")
+            except OSError:
+                # Observability is best-effort and must never affect the call under test.
+                return
 
     session.on("function_tools_executed", record)
 
@@ -129,8 +141,39 @@ async def entrypoint(ctx: JobContext) -> None:
     else:
         participant = await ctx.wait_for_participant()
     is_sip = participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-    caller_ani = participant.attributes.get("sip.phoneNumber") if is_sip else None
+    # LiveKit may publish custom participant attributes a fraction after the join
+    # event. The simulator also puts the caller number in participant metadata so
+    # a harness call never silently falls back to the demo rider.
+    caller_ani = None
+    metadata: dict = {}
+    for _ in range(20):
+        caller_ani = participant.attributes.get("sip.phoneNumber")
+        caller_ani = caller_ani or participant.attributes.get("harness.callerPhone")
+        try:
+            metadata = json.loads(participant.metadata or "{}")
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        caller_ani = caller_ani or metadata.get("caller_phone")
+        identity_match = re.match(
+            r"^fagi-simulator-phone-(\d+)-", str(participant.identity)
+        )
+        if not caller_ani and identity_match:
+            caller_ani = "+" + identity_match.group(1)
+        if caller_ani:
+            break
+        await asyncio.sleep(0.1)
     caller_ani = caller_ani or os.environ.get("DEMO_CALLER_ANI", "+14155550101")
+    logger.info(
+        "resolved caller context",
+        extra={
+            "participant_identity": participant.identity,
+            "caller_ani": caller_ani,
+            "used_harness_identity": bool(
+                participant.attributes.get("harness.callerPhone")
+                or metadata.get("caller_phone")
+            ),
+        },
+    )
     session_id = ctx.room.name or participant.identity
     state = BookingState(
         caller_ani=caller_ani,

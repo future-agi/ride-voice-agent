@@ -65,7 +65,7 @@ def test_seeded_booking_flow_is_idempotent_and_cancellable() -> None:
         otp = post(
             client,
             "verify_otp",
-            {"phone": "+14155550101", "code": "123456"},
+            {"phone": "+14155550101", "code": "638204"},
         )
         assert otp["verified"] is True
 
@@ -83,6 +83,13 @@ def test_seeded_booking_flow_is_idempotent_and_cancellable() -> None:
         first = post(client, "book_ride", booking_payload)
         second = post(client, "book_ride", booking_payload)
         assert first["booking_ref"] == second["booking_ref"]
+
+        # An identified caller must receive their active booking so status and
+        # cancellation tools never run with a null booking reference.
+        rider_with_active_booking = post(
+            client, "lookup_rider_by_phone", {"phone": "+14155550101"}
+        )
+        assert rider_with_active_booking["booking_ref"] == first["booking_ref"]
 
         cancellation = post(
             client,

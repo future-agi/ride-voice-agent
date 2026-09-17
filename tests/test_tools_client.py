@@ -5,6 +5,20 @@ import pytest
 from uber_voice_agent.tools_client import ToolsAPIError, ToolsClient
 
 
+def test_harness_mode_is_explicit_or_enabled_by_tracing(monkeypatch):
+    monkeypatch.delenv("HARNESS_MODE", raising=False)
+    monkeypatch.delenv("HARNESS_TOOL_TRACE", raising=False)
+    client = ToolsClient("http://tools.test", session_id="s1")
+    assert client.harness_mode is False
+
+    monkeypatch.setenv("HARNESS_MODE", "true")
+    assert client.harness_mode is True
+
+    monkeypatch.delenv("HARNESS_MODE")
+    monkeypatch.setenv("HARNESS_TOOL_TRACE", "/tmp/calls.jsonl")
+    assert client.harness_mode is True
+
+
 @pytest.mark.asyncio
 async def test_client_posts_json_and_returns_object() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:

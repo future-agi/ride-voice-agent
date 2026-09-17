@@ -349,7 +349,10 @@ class RideBookingAgent(Agent):
         """Find candidates for a spoken pickup or dropoff. Read one back before confirming it."""
         try:
             result = await self.client.call(
-                "geocode_address", query=query, market=self.state.default_market
+                "geocode_address",
+                query=query,
+                market=self.state.default_market,
+                _trace_payload={"address_kind": address_kind},
             )
             self.state.remember_geocode(address_kind, result.get("candidates", []))
             return result
@@ -363,11 +366,18 @@ class RideBookingAgent(Agent):
         """Record that the caller explicitly confirmed one latest geocoded candidate."""
         try:
             candidate = self.state.confirm_address(address_kind, place_id)
-            return {
+            result = {
                 "confirmed": True,
                 "address_kind": address_kind,
                 "formatted_address": candidate["formatted_address"],
             }
+            if self.client.harness_mode:
+                self.client.record_local(
+                    "confirm_address",
+                    {"address_kind": address_kind, "place_id": place_id},
+                    result,
+                )
+            return result
         except Exception as exc:
             raise _tool_error(exc) from exc
 
@@ -397,6 +407,12 @@ class RideBookingAgent(Agent):
         """Freeze one available product and its fare range from the latest quote."""
         try:
             option = self.state.select_product(product_id)
+            if self.client.harness_mode:
+                result = {"selected": True, "option": option}
+                self.client.record_local(
+                    "select_ride_option", {"product_id": product_id}, result
+                )
+                return result
             return {"selected": True, "option": option}
         except Exception as exc:
             raise _tool_error(exc) from exc
@@ -447,6 +463,14 @@ class RideBookingAgent(Agent):
         """Select saved_card:<id>, uber_cash, cash, or pay_link after explaining it."""
         try:
             self.state.select_payment(payment_method)
+            if self.client.harness_mode:
+                result = {"selected": True, "payment": payment_method}
+                self.client.record_local(
+                    "select_payment_method",
+                    {"payment_method": payment_method},
+                    result,
+                )
+                return result
             return {"selected": True, "payment": payment_method}
         except Exception as exc:
             raise _tool_error(exc) from exc
@@ -487,6 +511,10 @@ class RideBookingAgent(Agent):
         """Create the exact final trip read-back and one-time token. Read the summary, then ask for an explicit yes."""
         try:
             token, summary = self.state.prepare_confirmation()
+            if self.client.harness_mode:
+                result = {"confirmation_token": token, "summary_to_read": summary}
+                self.client.record_local("prepare_booking_confirmation", {}, result)
+                return result
             return {"confirmation_token": token, "summary_to_read": summary}
         except Exception as exc:
             raise _tool_error(exc) from exc
@@ -526,24 +554,28 @@ class RideBookingAgent(Agent):
     @function_tool()
     async def get_booking_status(self) -> dict:
         """Get current driver and pickup status for the booking from this call."""
-        if not self.state.booking_ref:
+        if not self.state.booking_ref and not self.client.harness_mode:
             raise ToolError("There is no booking in this call yet.")
         try:
-            return await self.client.call(
+            result = await self.client.call(
                 "get_booking_status", booking_ref=self.state.booking_ref
             )
+            self.state.booking_ref = result.get("booking_ref") or self.state.booking_ref
+            return result
         except Exception as exc:
             raise _tool_error(exc) from exc
 
     @function_tool()
     async def get_cancellation_quote(self) -> dict:
         """Get the cancellation fee to disclose before asking for cancellation consent."""
-        if not self.state.booking_ref:
+        if not self.state.booking_ref and not self.client.harness_mode:
             raise ToolError("There is no booking in this call yet.")
         try:
-            return await self.client.call(
+            result = await self.client.call(
                 "get_cancellation_quote", booking_ref=self.state.booking_ref
             )
+            self.state.booking_ref = result.get("booking_ref") or self.state.booking_ref
+            return result
         except Exception as exc:
             raise _tool_error(exc) from exc
 
@@ -554,7 +586,7 @@ class RideBookingAgent(Agent):
         """Cancel after disclosing the fee and receiving an explicit yes."""
         if not caller_explicitly_confirmed:
             raise ToolError("The caller must explicitly confirm cancellation.")
-        if not self.state.booking_ref:
+        if not self.state.booking_ref and not self.client.harness_mode:
             raise ToolError("There is no booking in this call yet.")
         context.disallow_interruptions()
         try:

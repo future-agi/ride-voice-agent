@@ -43,13 +43,15 @@ services:
     build: .
     env_file: .env.local
     environment:
-      # Pointed at the harness's world during a simulation, so the agent's tools act on the
-      # generated world instead of its own database. Its own API remains the default.
-      TOOLS_API_URL: ${TOOLS_API_URL:-http://tools-api:8080}
+      # The harness may replace this with its recording proxy, but the default full stack must
+      # always stay inside this Compose project rather than calling a host/demo service.
+      TOOLS_API_URL: http://tools-api:8080
+      GOOGLE_APPLICATION_CREDENTIALS: /etc/vertex/creds.json
     volumes:
-      # Vertex service account, when the agent is configured to use Vertex rather than a
-      # Gemini API key. Named by an absolute path so it resolves inside the container.
-      - ${VERTEX_CREDENTIALS:-../future-agi/Vertex_AI_Creds.json}:/etc/vertex/creds.json:ro
+      # This is supplied once by the harness platform, not by each submitted repository user.
+      # /dev/null keeps infrastructure discovery possible when voice credentials are absent;
+      # run preflight then reports the missing platform capability before placing a call.
+      - ${VERTEX_CREDENTIALS:-/dev/null}:/etc/vertex/creds.json:ro
     depends_on:
       tools-api:
         condition: service_healthy

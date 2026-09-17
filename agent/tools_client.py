@@ -27,6 +27,20 @@ class ToolsClient:
         self._client = client
         self._trace_path: Path | None = None
 
+    @property
+    def harness_mode(self) -> bool:
+        """Whether this client is running under an isolated harness scenario.
+
+        Harness mode is explicit.  A trace destination was the original signal used by the
+        voice runner, while ``HARNESS_MODE`` lets a containerised runner enable the same
+        behaviour without requiring a shared filesystem mount.
+        """
+        return os.environ.get("HARNESS_MODE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        } or bool(os.environ.get("HARNESS_TOOL_TRACE", "").strip())
+
     def enable_trace(self, destination: str | None = None) -> None:
         """Trace API-boundary calls, including deterministic calls outside LLM tools."""
         value = destination or os.environ.get("HARNESS_TOOL_TRACE", "")
@@ -50,19 +64,24 @@ class ToolsClient:
     ) -> None:
         if self._trace_path is None:
             return
-        with self._trace_path.open("a", encoding="utf-8") as trace:
-            trace.write(
-                json.dumps(
-                    {
-                        "name": endpoint,
-                        "arguments": payload,
-                        "output": output,
-                        "is_error": is_error,
-                    },
-                    default=str,
+        try:
+            with self._trace_path.open("a", encoding="utf-8") as trace:
+                trace.write(
+                    json.dumps(
+                        {
+                            "name": endpoint,
+                            "arguments": payload,
+                            "output": output,
+                            "is_error": is_error,
+                        },
+                        default=str,
+                    )
+                    + "\n"
                 )
-                + "\n"
-            )
+        except OSError:
+            # Evidence is best-effort and must never change agent behavior. The
+            # tools proxy remains a fallback when a trace mount is unavailable.
+            return
 
     async def call(
         self,

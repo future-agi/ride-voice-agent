@@ -28,3 +28,10 @@ def test_prompt_does_not_expose_unknown_saved_data() -> None:
     assert "Account on file: no" in prompt
     assert "Saved places: unavailable" in prompt
     assert "Default payment: unavailable" in prompt
+
+
+def test_prompt_requires_sequential_function_calls_for_gemini() -> None:
+    prompt = build_instructions({"caller_ani": "+19995550123"})
+
+    assert "one tool call at a time" in prompt
+    assert "never emit concurrent tool calls" in prompt
